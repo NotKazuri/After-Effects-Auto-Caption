@@ -1,0 +1,124 @@
+/ ImportSRT.jsx
+// ExtendScript for After Effects - imports an SRT and creates editable centered text layers.
+// Save as ImportSRT.jsx and run from File > Scripts > Run Script File... or place in AE's Scripts folder.
+
+(function importSRT(){
+    try {
+        if (app.project === null) app.newProject();
+
+        var comp = app.project.activeItem;
+        if (!(comp instanceof CompItem)) {
+            alert("Please open or select a composition before running this script.");
+            return;
+        }
+
+        // Let user pick the SRT file
+        var srtFile = File.openDialog("Select an SRT file", "*.srt");
+        if (srtFile === null) {
+            // user cancelled
+            return;
+        }
+
+        // Ensure AE can read UTF-8 SRTs
+        srtFile.encoding = "UTF-8";
+        if (!srtFile.open("r")) {
+            alert("Unable to open file: " + srtFile.fsName);
+            return;
+        }
+        var srtText = srtFile.read();
+        srtFile.close();
+
+        // Normalize line endings
+        srtText = srtText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+        var cues = parseSRT(srtText);
+        if (cues.length === 0) {
+            alert("No subtitle cues found in the SRT file.");
+            return;
+        }
+
+        app.beginUndoGroup("Import SRT Subtitles");
+
+        // Extend comp duration if needed (add 1s padding)
+        var lastOut = cues[cues.length - 1].out;
+        if (lastOut > comp.duration) {
+            comp.duration = lastOut + 1;
+        }
+
+        // Create text layers
+        for (var i = 0; i < cues.length; i++) {
+            var cue = cues[i];
+            var layer = comp.layers.addText(" ");
+            layer.name = "Subtitle " + (i + 1);
+            layer.inPoint = cue.in;
+            layer.outPoint = cue.out;
+
+            // Position at center of comp
+            layer.property("Position").setValue([comp.width / 2, comp.height / 2]);
+
+            // Fill the Source Text with the cue text and center-justify it
+            var textProp = layer.property("Source Text");
+            var textDoc = textProp.value;
+            textDoc.text = cue.text;
+            // Default font size: proportional to comp height but at least 20
+            textDoc.fontSize = Math.max(20, Math.round(comp.height / 15));
+            textDoc.leading = textDoc.fontSize * 1.05;
+            textDoc.justification = ParagraphJustification.CENTER_JUSTIFY;
+            textProp.setValue(textDoc);
+        }
+
+        app.endUndoGroup();
+        alert("Imported " + cues.length + " subtitle cues.");
+
+    } catch (e) {
+        app.endUndoGroup();
+        alert("Error: " + (e.toString ? e.toString() : e));
+    }
+
+    // ---------- Helper functions ----------
+    function parseSRT(text) {
+        var items = text.split(/\n{2,}/); // split by blank lines
+        var out = [];
+        for (var i = 0; i < items.length; i++) {
+            var block = items[i].trim();
+            if (!block) continue;
+            var lines = block.split("\n");
+            // find timecode line (usually second line, but be flexible)
+            var timeLineIndex = -1;
+            for (var k = 0; k < Math.min(lines.length, 3); k++) {
+                if (lines[k].match(/\d{1,2}:\d{2}:\d{2}[,\.]\d{1,3}\s*-->\s*\d{1,2}:\d{2}:\d{2}[,\.]\d{1,3}/)) {
+                    timeLineIndex = k;
+                    break;
+                }
+            }
+            if (timeLineIndex === -1) continue;
+            var timeLine = lines[timeLineIndex];
+            var m = timeLine.match(/(\d{1,2}:\d{2}:\d{2})[:,\.](\d{1,3})\s*-->\s*(\d{1,2}:\d{2}:\d{2})[:,\.](\d{1,3})/);
+            if (!m) continue;
+            var inSec = toSeconds(m[1], m[2]);
+            var outSec = toSeconds(m[3], m[4]);
+            // all lines after the timecode line are subtitle text
+            var textLines = lines.slice(timeLineIndex + 1);
+            var cueText = textLines.join("\n");
+            cueText = stripTags(cueText);
+            out.push({ in: inSec, out: outSec, text: cueText });
+        }
+        return out;
+    }
+
+    function toSeconds(hms, ms) {
+        var parts = hms.split(":");
+        var hh = parseInt(parts[0], 10);
+        var mm = parseInt(parts[1], 10);
+        var ss = parseInt(parts[2], 10);
+        // normalize milliseconds to 3 digits
+        var msecs = parseInt((ms + "000").substr(0, 3), 10);
+        return hh * 3600 + mm * 60 + ss + msecs / 1000;
+    }
+
+    function stripTags(s) {
+        // Remove simple HTML-like tags (e.g. <i>, <b>) - keep line breaks
+        return s.replace(/<\/?[^>]+(>|$)/g, "");
+    }
+
+})();
