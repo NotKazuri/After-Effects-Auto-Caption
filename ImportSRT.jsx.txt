@@ -1,3 +1,4 @@
+(for multiple lines)
 / ImportSRT.jsx
 // ExtendScript for After Effects - imports an SRT and creates editable centered text layers.
 // Save as ImportSRT.jsx and run from File > Scripts > Run Script File... or place in AE's Scripts folder.
@@ -120,5 +121,6 @@
         // Remove simple HTML-like tags (e.g. <i>, <b>) - keep line breaks
         return s.replace(/<\/?[^>]+(>|$)/g, "");
     }
+
 
 })();
